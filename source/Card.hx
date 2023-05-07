@@ -1,88 +1,59 @@
 package;
 
-import flixel.addons.nape.FlxNapeSprite;
-import flixel.addons.nape.FlxNapeSpace;
 import flixel.FlxG;
 import flixel.FlxSprite;
+import flixel.group.FlxGroup;
 import flixel.input.mouse.FlxMouseEvent;
+import flixel.math.FlxPoint;
+import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
-import nape.constraint.DistanceJoint;
-import nape.dynamics.InteractionFilter;
-import nape.geom.Vec2;
-import nape.phys.Body;
 
-class Card extends FlxNapeSprite
+class Card extends FlxSprite
 {
-	/**
-	 * How long the turning animation takes
-	 */
-	static inline var TURNING_TIME:Float = 0.2;
-
 	/**
 	 * Whether the card has been turned around yet or not
 	 */
-	var turned:Bool = false;
+	public var turned:Bool;
 
 	/**
 	 * Which card this is (index in the sprite sheet).
 	 */
-	var cardIndex:Int;
+	public var slot:Slot;
+
+	public var cardIndex:Int;
+	public var val:Int;
+
+	public var canClick:Bool;
 
 	public function new(x:Float, y:Float, cardIndex:Int):Void
 	{
 		super(x, y);
 		this.cardIndex = cardIndex;
-		loadGraphic("assets/Deck.png", true, 79, 123);
+		val = cardIndex % 13 + 1;
+		turned = false;
+		canClick = false;
+		loadGraphic("assets/Deck.png", true, Reg.cardWidth, Reg.cardHeight);
 
 		// The card starts out being turned around
-		animation.frameIndex = 54;
-		// So the card still looks smooth when rotated
-		antialiasing = true;
-		setDrag(0.95, 0.95);
-		// Creating a nape body
-		createRectangularBody(79, 123);
-		// To make sure cards don't interact with each other
-		body.setShapeFilters(new InteractionFilter(2, ~2));
+		animation.frameIndex = 52;
 
 		// Setup the mouse events
-		FlxMouseEvent.add(this, onDown, null, onOver, onOut);
+		// FlxMouseEvent.add(this, null, null, onOver, onOut, true);
 	}
 
-	function onDown(_)
+	// function onDown(_)
+
+	public function magnify()
 	{
-		// Play the turning animation if the card hasn't been turned around yet
-		if (!turned)
-		{
-			turned = true;
-			FlxTween.tween(scale, {x: 0}, TURNING_TIME / 2, {onComplete: pickCard});
-		}
-
-		PlayState.cardJoint = new DistanceJoint(FlxNapeSpace.space.world, body, Vec2.weak(FlxG.mouse.x, FlxG.mouse.y),
-			body.worldPointToLocal(Vec2.weak(FlxG.mouse.x, FlxG.mouse.y)), 0, 0);
-
-		PlayState.cardJoint.stiff = false;
-		PlayState.cardJoint.damping = 1;
-		PlayState.cardJoint.frequency = 2;
-		PlayState.cardJoint.space = FlxNapeSpace.space;
+		if (canClick)
+			scale.x = scale.y = 1.2;
 	}
 
-	function onOver(_)
+	public function demagnify()
 	{
-		scale.x = scale.y = 1.2;
-	}
-
-	function onOut(_)
-	{
-		scale.x = scale.y = 1.0;
-	}
-
-	function pickCard(_):Void
-	{
-		animation.frameIndex = cardIndex;
-
-		// Finish the card animation
-		FlxTween.tween(scale, {x: 1}, TURNING_TIME / 2);
+		if (scale.x > 1)
+			scale.x = scale.y = 1.0;
 	}
 
 	override public function destroy():Void
@@ -90,5 +61,63 @@ class Card extends FlxNapeSprite
 		// Make sure that this object is removed from the FlxMouseEventManager for GC
 		FlxMouseEvent.remove(this);
 		super.destroy();
+	}
+
+	public function moveTo(targetSlot:Slot):Void
+	{
+		slot.cardsGrp.remove(this);
+		targetSlot.cardsGrp.add(this); // Necessary so that card is rendered on top of others in targetSlot during the move
+		FlxTween.tween(this, {x: targetSlot.x, y: targetSlot.y}, Reg.travelTime, {
+			ease: FlxEase.quadOut,
+			onComplete: function(?_)
+			{
+				slot.drawCard();
+				targetSlot.addCard(this);
+				slot = targetSlot;
+				lowlight();
+			}
+		});
+	}
+
+	public function flip():Void
+	{
+		var card = this;
+		FlxTween.tween(this.scale, {x: 0}, Reg.flipTime, {
+			ease: FlxEase.quadOut,
+			onComplete: function(?_)
+			{
+				if (turned)
+					(animation.frameIndex = 52)
+				else
+					(animation.frameIndex = cardIndex);
+				FlxTween.tween(this.scale, {x: 1}, Reg.flipTime, {
+					ease: FlxEase.quadOut,
+					onComplete: function(?_)(turned = !turned)
+				});
+			}
+		});
+	}
+
+	public function lowlight():Void
+	{
+		var prev = animation.frameIndex;
+		loadGraphic("assets/Deck.png", true, Reg.cardWidth, Reg.cardHeight);
+		animation.frameIndex = prev;
+	}
+
+	public function highlight():Void
+	{
+		var prev = animation.frameIndex;
+		loadGraphic("assets/DeckHighlight.png", true, Reg.cardWidth, Reg.cardHeight);
+		animation.frameIndex = prev;
+	}
+
+	public function isBelow(card:Null<Card>):Bool
+	{
+		if (card == null)
+			(return false);
+		if (card.slot != slot)
+			(return false);
+		return (slot.cards.indexOf(this) < slot.cards.indexOf(card));
 	}
 }
